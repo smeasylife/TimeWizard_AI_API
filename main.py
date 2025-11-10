@@ -21,7 +21,6 @@ class TimetableRequest(BaseModel):
     max_credit: int = Field(description="최대 학점")
     requirement: str = Field(description="요구 사항")
     curriculum_csv_url: str = Field(
-        default="https://nuc-opencloud.pdj.kr/data/likelion/time_wizard/demo_data/erica_sugang_1001.csv",
         description="수강편람 CSV 파일 URL"
     )
     curriculum_image_url: str = Field(
@@ -34,7 +33,7 @@ class TimetableRequest(BaseModel):
 # ------------------------------------
 def get_timetable_json(request: TimetableRequest) -> str:
     # API 키 설정
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = "AIzaSyC7DXztn4rbN3n70NwHv3mjbRxyC8nYFwU"
     if not api_key:
         raise ValueError("서버에 GEMINI_API_KEY가 설정되지 않았습니다.")
 
@@ -125,7 +124,7 @@ def get_timetable_json(request: TimetableRequest) -> str:
     system_instruction = """당신의 임무는 대학생의 시간표를 작성하는 것입니다.
 시간표를 생성하면서 아래의 원칙을 지켜야 합니다.
 
-1. 반드시 제공되는 CSV 수강 편람 데이터에 기반하여 실제 수강편람과 완벽히 맞는 데이터로 구성해야 합니다. (없는 강의를 넣거나, 수강 편람과는 시간이나 정보를 다르게 하여서 넣으면 절대 안됩니다.)
+1. 반드시 제공되는 CSV 수강 편람 데이터에 기반하여 실제 수강편람과 완벽히 맞는 데이터로 구성해야 합니다. (없는 강의를 넣거나, 수강 편람과는 시간이나 정보를 다르게 하여서 넣으면 절대 안됩니다. 특히 course_id는 CSV의 course_id 컬럼 값을 정확히 복사해야 합니다.)
 2. 수강 과목 사이에 시간이 겹칠 수는 없습니다.
 3. 이후 제시되는 커리큘럼 이미지, 사용자의 추가 요청 사항, 목표 학점을 최대한 반영하여야 합니다.
 4. ai_comment 부분에서는 왜 이렇게 시간표를 짰는지의 합당한 이유, 추가 설명이 필요한 부분을 친절하게 한국어로 500자 내외로 설명합니다. 포맷은 plaintext입니다. 단, comment 내에서는 당신의 작업 내부 사항을 노출하면 안됩니다. (예를 들어, csv로 제공 받은 수강편람 데이터에서 자료가 부족할 경우 '추가 CSV 데이터가 제공되어야 합니다' 라는 설명은 절대 안됩니다 - 대신 '현재 제공된 편람 자료가 부족합니다' 같은 식으로 사용자단에서 이해가 되도록 설명해야 합니다)
@@ -134,17 +133,41 @@ def get_timetable_json(request: TimetableRequest) -> str:
 7. 목표 학점보다 미달되어도 시간표는 완성합니다. 단, 최대 학점은 초과하면 안됩니다.
 8. '시간미지정' 강의(강좌)는 사이버/비대면 수업으로, 시간을 고려하지 않고 추가합니다. (시작, 종료 시간을 0으로 설정합니다)
 9. 교양필수, 전공필수가 커리큘럼에 있다면 최우선으로 추가해야 합니다. 단, 요청 사항에 배제하라는 요청이 있는 경우 무시합니다.
-10. 출력에는 오직 'JSON' 데이터만 담아야 하며, 제공되는 'Structured Output'을 **무조건** 준수해야 합니다.
+10. **매우 중요** 응답값의 course_id는 반드시 CSV 파일의 첫 번째 컬럼인 "course_id" 값(1, 2, 3... 같은 순차 정수)을 사용해야 합니다.
+11. 출력에는 오직 'JSON' 데이터만 담아야 하며, 제공되는 'Structured Output'을 **무조건** 준수해야 합니다.
 
-courses 자료 설명:
-"courses": {
-"course_id": {}, // 강의 id
-"course_name": {}, // 강의명
-"professor": {},  // 교수명
-"day_of_week": {},  // 요일 (mon~sun)
-"start_time": {}, // 시작 시간, 00:00은 0이며, 23:59는 1439입니다. (분 단위)
-"end_time": {} // 종료 시간, 00:00은 0이며, 23:59는 1439입니다. (분 단위)
+**중요: CSV 컬럼 순서 및 의미**
+CSV의 각 행은 다음 순서로 구성됩니다:
+[0]course_id → 1,2,3,4,5... (시스템 고유 ID - 이것을 응답에 사용!)
+[1]course_name → 20001,20004,22498,23715... (수업번호 - 절대 사용 금지!)
+[2]course_code → AIX0002,AIX0005... (학수번호)
+[3]subject_name → "AI+X:인공지능", "로봇프로그래밍"... (과목명 - 응답의 course_name에 사용)
+[4]subject_name_eng → 영문 과목명
+...
+[12]professor → 교수명
+[13]class_time → 수업 시간
+
+**잘못된 예 (절대 금지!):**
+CSV 행: "359,20515,GEE2054,학술영어2:글쓰기,..."
+잘못된 응답: {"course_id": "20515", ...} ❌ (두 번째 컬럼 사용)
+잘못된 응답: {"course_id": "GEE2054", ...} ❌ (세 번째 컬럼 사용)
+
+**올바른 예:**
+CSV 행: "359,20515,GEE2054,학술영어2:글쓰기,Academic English 2: Writing,...,Douglas James Scott,fri/1300/1500,..."
+올바른 응답:
+{
+  "course_id": "359",                    ← 첫 번째 컬럼만 사용!
+  "course_name": "학술영어2:글쓰기",      ← 네 번째 컬럼(subject_name) 사용!
+  "professor": "Douglas James Scott",
+  "day_of_week": "fri",
+  "start_time": 780,                     ← 1300 → 13*60 = 780
+  "end_time": 900                        ← 1500 → 15*60 = 900
 }
+
+**반드시 기억:**
+- course_id 응답값 = CSV의 [0]번째 컬럼 (1, 2, 3, 359, 5...)
+- course_name 응답값 = CSV의 [3]번째 컬럼 (subject_name)
+- [1]번째 컬럼(20001, 22498, 23715...)은 절대 사용하지 마세요!
 """
 
     # 모델 생성 및 설정
@@ -208,6 +231,7 @@ courses 자료 설명:
     final_contents = contents.copy()
     if image_part:
         final_contents.append(image_part)
+
 
     # API 호출
     print("Gemini API 호출 시작...")
