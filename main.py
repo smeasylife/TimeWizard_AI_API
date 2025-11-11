@@ -33,7 +33,7 @@ class TimetableRequest(BaseModel):
 # ------------------------------------
 def get_timetable_json(request: TimetableRequest) -> str:
     # API 키 설정
-    api_key = "AIzaSyC7DXztn4rbN3n70NwHv3mjbRxyC8nYFwU"
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("서버에 GEMINI_API_KEY가 설정되지 않았습니다.")
 
