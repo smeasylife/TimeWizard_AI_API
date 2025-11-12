@@ -131,7 +131,7 @@ def get_timetable_json(request: TimetableRequest) -> str:
 5. 시간표를 짜면서 기본적으로 지켜져야 하는 부분은 다 준수한다고 생각하면 됩니다.
 6. 단, 사용자의 요청 사항으로는 수행이 어려울 경우 후순위로 미룰수 있습니다. (최적의 시간표의 작성이 우선입니다)
 7. 목표 학점보다 미달되어도 시간표는 완성합니다. 단, 최대 학점은 초과하면 안됩니다.
-8. '시간미지정' 강의(강좌)는 사이버/비대면 수업으로, 시간을 고려하지 않고 추가합니다. (시작, 종료 시간을 0으로 설정합니다)
+8. '시간미지정' 강의(강좌)는 사이버/비대면 수업으로, 시간을 고려하지 않고 추가합니다. (각 courseTime의 dayOfWeek를 "NONE", startTime과 endTime을 0으로 설정합니다)
 9. 교양필수, 전공필수가 커리큘럼에 있다면 최우선으로 추가해야 합니다. 단, 요청 사항에 배제하라는 요청이 있는 경우 무시합니다.
 10. **매우 중요** 응답값의 course_id는 반드시 CSV 파일의 첫 번째 컬럼인 "course_id" 값(1, 2, 3... 같은 순차 정수)을 사용해야 합니다.
 11. 출력에는 오직 'JSON' 데이터만 담아야 하며, 제공되는 'Structured Output'을 **무조건** 준수해야 합니다.
@@ -147,27 +147,56 @@ CSV의 각 행은 다음 순서로 구성됩니다:
 [12]professor → 교수명
 [13]class_time → 수업 시간
 
+**매우 중요: class_time 필드 파싱 및 시간 충돌 확인**
+CSV의 class_time 필드는 쉼표(,)로 구분된 여러 시간대를 포함할 수 있습니다.
+- 예시 1: "목(09:00-10:30),목(10:30-11:00)" → 목요일에 두 개의 연속된 시간대
+- 예시 2: "목(13:00-15:00),금(13:00-14:30)" → 목요일과 금요일에 각각 한 시간대
+- 예시 3: "화(14:00-15:00),화(15:00-17:00)" → 화요일에 두 개의 연속된 시간대
+
+**반드시 지켜야 할 규칙:**
+1. class_time의 쉼표로 구분된 모든 시간대를 파싱하여 응답의 courseTimes 배열에 포함시켜야 합니다.
+2. 시간 충돌 검사 시, 각 강의의 모든 courseTimes를 고려하여 확인해야 합니다.
+3. 한 강의의 어떤 courseTime이라도 다른 강의의 courseTime과 겹치면 안 됩니다.
+4. 요일은 한글 약자(월, 화, 수, 목, 금, 토, 일)를 영문 대문자(MON, TUE, WED, THU, FRI, SAT, SUN)로 변환합니다.
+5. 시간은 "HH:MM" 형식을 분 단위(HH*60 + MM)로 변환합니다. 예: "09:00" → 540, "14:30" → 870
+
 **잘못된 예 (절대 금지!):**
-CSV 행: "359,20515,GEE2054,학술영어2:글쓰기,..."
-잘못된 응답: {"course_id": "20515", ...} ❌ (두 번째 컬럼 사용)
-잘못된 응답: {"course_id": "GEE2054", ...} ❌ (세 번째 컬럼 사용)
+CSV: class_time = "목(13:00-15:00),금(13:00-14:30)"
+❌ 잘못된 응답: 첫 번째 시간대만 포함
+{
+  "courseTimes": [
+    {"dayOfWeek": "THU", "startTime": 780, "endTime": 900}
+  ]
+}
 
 **올바른 예:**
-CSV 행: "359,20515,GEE2054,학술영어2:글쓰기,Academic English 2: Writing,...,Douglas James Scott,fri/1300/1500,..."
+CSV 행: "359,20515,GEE2054,학술영어2:글쓰기,Academic English 2: Writing,...,Douglas James Scott,목(13:00-15:00),금(13:00-14:30),..."
 올바른 응답:
 {
-  "course_id": "359",                    ← 첫 번째 컬럼만 사용!
-  "course_name": "학술영어2:글쓰기",      ← 네 번째 컬럼(subject_name) 사용!
+  "course_id": "359",
+  "course_name": "학술영어2:글쓰기",
   "professor": "Douglas James Scott",
-  "day_of_week": "fri",
-  "start_time": 780,                     ← 1300 → 13*60 = 780
-  "end_time": 900                        ← 1500 → 15*60 = 900
+  "courseTimes": [
+    {
+      "dayOfWeek": "THU",
+      "startTime": 780,      ← 13*60 = 780
+      "endTime": 900          ← 15*60 = 900
+    },
+    {
+      "dayOfWeek": "FRI",
+      "startTime": 780,      ← 13*60 = 780
+      "endTime": 870          ← 14*60 + 30 = 870
+    }
+  ]
 }
 
 **반드시 기억:**
 - course_id 응답값 = CSV의 [0]번째 컬럼 (1, 2, 3, 359, 5...)
 - course_name 응답값 = CSV의 [3]번째 컬럼 (subject_name)
 - [1]번째 컬럼(20001, 22498, 23715...)은 절대 사용하지 마세요!
+- class_time의 모든 시간대를 파싱하여 courseTimes 배열에 포함시키세요!
+- 시간 충돌 검사 시 모든 courseTimes를 고려하세요!
+- dayOfWeek는 반드시 대문자로 작성하세요 (MON, TUE, WED, THU, FRI, SAT, SUN)!
 """
 
     # 모델 생성 및 설정
@@ -182,17 +211,26 @@ CSV 행: "359,20515,GEE2054,학술영어2:글쓰기,Academic English 2: Writing,
                     "type": "array",
                     "items": {
                         "type": "object",
-                        "required": ["course_id", "course_name", "professor", "day_of_week", "start_time", "end_time"],
+                        "required": ["course_id", "course_name", "professor", "courseTimes"],
                         "properties": {
                             "course_id": {"type": "string"},
                             "course_name": {"type": "string"},
                             "professor": {"type": "string"},
-                            "day_of_week": {
-                                "type": "string",
-                                "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-                            },
-                            "start_time": {"type": "integer"},
-                            "end_time": {"type": "integer"}
+                            "courseTimes": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "required": ["dayOfWeek", "startTime", "endTime"],
+                                    "properties": {
+                                        "dayOfWeek": {
+                                            "type": "string",
+                                            "enum": ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN", "NONE"]
+                                        },
+                                        "startTime": {"type": "integer"},
+                                        "endTime": {"type": "integer"}
+                                    }
+                                }
+                            }
                         }
                     }
                 },
