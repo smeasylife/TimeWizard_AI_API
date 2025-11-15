@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from fastapi.concurrency import run_in_threadpool
@@ -31,9 +32,10 @@ class TimetableRequest(BaseModel):
 # ------------------------------------
 # 2. Gemini API 호출 함수
 # ------------------------------------
-def get_timetable_json(request: TimetableRequest) -> str:
+def get_timetable_json(request: TimetableRequest) -> dict:
     # API 키 설정
-    api_key = os.getenv("GEMINI_API_KEY")
+    # api_key = os.getenv("GEMINI_API_KEY")
+    api_key = "AIzaSyAiMQjjDCnxkynx49pos9MvPuqBo_Yo8Uk"
     if not api_key:
         raise ValueError("서버에 GEMINI_API_KEY가 설정되지 않았습니다.")
 
@@ -87,12 +89,25 @@ def get_timetable_json(request: TimetableRequest) -> str:
     image_part = None
     if request.curriculum_image_url:
         try:
+            # URL 인코딩 처리 (한글 파일명 등을 위해)
+            from urllib.parse import urlparse, quote, urlunparse
+            parsed_url = urlparse(request.curriculum_image_url)
+            encoded_path = quote(parsed_url.path, safe='/')
+            encoded_url = urlunparse((
+                parsed_url.scheme,
+                parsed_url.netloc,
+                encoded_path,
+                parsed_url.params,
+                parsed_url.query,
+                parsed_url.fragment
+            ))
+
             print(f"Downloading Image from: {request.curriculum_image_url}...")
-            response = requests.get(request.curriculum_image_url)
+            response = requests.get(encoded_url)
             response.raise_for_status()
             image_data = response.content
 
-            image_path = urlparse(request.curriculum_image_url).path
+            image_path = parsed_url.path
             image_ext = pathlib.Path(image_path).suffix
             image_mime_type, _ = mimetypes.guess_type(f"file{image_ext}")
 
@@ -273,10 +288,42 @@ CSV 행: "359,20515,GEE2054,학술영어2:글쓰기,Academic English 2: Writing,
 
     # API 호출
     print("Gemini API 호출 시작...")
-    response = model.generate_content(final_contents)
-    print("Gemini API 응답 수신 완료.")
+    start_time = time.perf_counter()
 
-    return response.text
+    response = model.generate_content(final_contents)
+
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+
+    print("Gemini API 응답 수신 완료.")
+    print(f"⏱️  응답 시간: {elapsed_time:.2f}초")
+
+    # 토큰 사용량 추출
+    usage_info = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0
+    }
+
+    if hasattr(response, 'usage_metadata'):
+        usage = response.usage_metadata
+        usage_info["input_tokens"] = usage.prompt_token_count
+        usage_info["output_tokens"] = usage.candidates_token_count
+        usage_info["total_tokens"] = usage.total_token_count
+
+        print(f"📊 토큰 사용량:")
+        print(f"   - 입력 토큰: {usage_info['input_tokens']}")
+        print(f"   - 출력 토큰: {usage_info['output_tokens']}")
+        print(f"   - 총 토큰: {usage_info['total_tokens']}")
+
+    # 메타데이터와 함께 반환
+    return {
+        "timetable_data": response.text,
+        "metadata": {
+            "elapsed_time_seconds": round(elapsed_time, 2),
+            "usage": usage_info
+        }
+    }
 
 # ------------------------------------
 # 3. FastAPI 앱 및 엔드포인트 생성
@@ -294,18 +341,26 @@ async def create_timetable(request: TimetableRequest):
     """
     try:
         print("요청 처리 시작")
-        json_string = await run_in_threadpool(get_timetable_json, request)
+        result = await run_in_threadpool(get_timetable_json, request)
         print("API 응답 파싱 중")
-        
-        json_payload = json.loads(json_string)
+
+        # response.text는 JSON 문자열이므로 파싱
+        timetable_data = json.loads(result["timetable_data"])
+
+        # 메타데이터는 print만 (응답에 포함하지 않음)
+        metadata = result["metadata"]
+        print(f"⏱️  총 처리 시간: {metadata['elapsed_time_seconds']}초")
+        print(f"📊 토큰 사용량: 입력 {metadata['usage']['input_tokens']}, "
+              f"출력 {metadata['usage']['output_tokens']}, "
+              f"총 {metadata['usage']['total_tokens']}")
         print("응답 완료")
-        
-        return json_payload
+
+        return timetable_data
 
     except Exception as e:
         print(f"API 처리 중 오류 발생: {e}")
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"AI 시간표 생성 중 오류가 발생했습니다: {str(e)}"
         )
 
