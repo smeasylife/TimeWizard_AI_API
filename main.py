@@ -48,7 +48,7 @@ def analyze_requirements(requirement: str) -> dict:
     """
     사용자의 요구사항을 분석하여 필터링 조건을 추출합니다.
     """
-    api_key = "AIzaSyAiMQjjDCnxkynx49pos9MvPuqBo_Yo8Uk"
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("서버에 GEMINI_API_KEY가 설정되지 않았습니다.")
 
@@ -162,8 +162,7 @@ def analyze_requirements(requirement: str) -> dict:
 # 2-2. 2단계: 시간표 생성 함수
 def get_timetable_json(request: TimetableRequest) -> dict:
     # API 키 설정
-    # api_key = os.getenv("GEMINI_API_KEY")
-    api_key = "AIzaSyAiMQjjDCnxkynx49pos9MvPuqBo_Yo8Uk"
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("서버에 GEMINI_API_KEY가 설정되지 않았습니다.")
 
