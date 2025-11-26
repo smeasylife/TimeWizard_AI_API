@@ -1,9 +1,11 @@
 import os
 import json
 import time
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field
+import json
+from typing import Dict, Any
 import base64
 import google.generativeai as genai
 import requests
@@ -17,6 +19,12 @@ import pathlib
 class RequirementAnalysisRequest(BaseModel):
     requirement: str = Field(description="사용자의 요구 사항 및 선호사항")
 
+class CourseTimeDTO(BaseModel):
+    dayOfWeek: str  # 요일 (MON, TUE, WED 등)
+    startTime: int  # 시작 시간 (분 단위)
+    endTime: int  # 종료 시간 (분 단위)
+    classroom: str | None = None  # 강의실 위치
+
 class CourseTime(BaseModel):
     day: str
     start_time: int
@@ -29,6 +37,27 @@ class CourseData(BaseModel):
     credit: int
     course_type: str  # 이수구분
     course_times: list[CourseTime] = Field(description="한 수업에 있는 여러 수업 요일과 시간")
+
+class CoursePriorityData(BaseModel):
+    courseId: int  # courseId
+    courseCode: str | None = None  # courseCode
+    courseName: str  # courseName
+    courseEnglishName: str | None = None  # courseEnglishName
+    courseNumber: int | None = None  # courseNumber
+    professor: str | None = None  # professor
+    major: str | None = None  # major
+    section: int | None = None  # section
+    grade: int | None = None  # grade (학년)
+    credits: int  # credits (학점)
+    lectureHours: int | None = None  # lectureHours
+    practiceHours: int | None = None  # practiceHours
+    courseType: str  # courseType (이수구분)
+    capacity: int | None = Field(description="수강 정원")  # capacity
+    semester: str | None = None  # semester
+    courseTimes: list[CourseTimeDTO] = Field(description="한 수업에 있는 여러 수업 요일과 시간")  # courseTimes
+
+class CoursePriorityRequest(BaseModel):
+    courses: list[CoursePriorityData] = Field(description="우선순위를 정할 수업 데이터 목록")
 
 class TimetableRequest(BaseModel):
     depart: str = Field(description="학과")
@@ -157,6 +186,100 @@ def analyze_requirements(requirement: str) -> dict:
         print(f"   - 총 토큰: {usage.total_token_count}")
 
     return json.loads(response.text)
+
+
+# 2-1-2. 수업 우선순위 결정 함수
+def prioritize_courses(courses: list[CoursePriorityData]) -> list[CoursePriorityData]:
+    """
+    수업 데이터를 분석하여 신청 우선순위로 정렬합니다.
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("서버에 GEMINI_API_KEY가 설정되지 않았습니다.")
+
+    genai.configure(api_key=api_key)
+
+    # 수업 데이터를 JSON으로 변환
+    courses_json = json.dumps(
+        [course.model_dump() for course in courses],
+        ensure_ascii=False,
+        indent=2
+    )
+
+    system_instruction = """당신의 임무는 제공된 수업 데이터를 분석하여 수강 신청 우선순위로 정렬하는 것입니다.
+
+**데이터 구조:**
+각 수업은 다음 필드를 포함합니다:
+- course_id: 수업 고유 ID
+- course_code: 과목 코드
+- course_name: 과목명 (한글)
+- course_english_name: 과목명 (영문)
+- professor: 교수명
+- major: 개설학과
+- grade: 학년
+- credits: 학점
+- course_type: 이수구분 (전공필수, 전공선택, 교양필수 등)
+- capacity: 수강 정원
+- course_times: 수업 시간 정보
+
+**우선순위 결정 기준:**
+1. **이수구분 중요도** (높은 순서):
+   - 전공핵심/전공필수: 가장 높은 우선순위
+   - 교양필수/기초교양: 높은 우선순위
+   - 전공선택: 중간 우선순위
+   - 교양선택: 일반 우선순위
+
+2. **수강 신청 현황**:
+   - capacity(정원)이 적은 과목은 조기 마감 위험이 있으므로 높은 우선순위
+   - capacity가 없는 경우는 중간 순위로 취급
+
+3. **학점 및 시간**:
+   - 학점(credits)이 높은 수업(3학점 이상)은 조금 더 높은 우선순위 고려
+
+**출력 규칙:**
+- 입력받은 수업 데이터를 그대로 우선순위가 높은 순서대로 정렬하여 반환
+- 모든 필드를 그대로 유지
+"""
+
+    generation_config = {
+        "temperature": 0.2,
+        "response_mime_type": "application/json"
+    }
+
+    model = genai.GenerativeModel(
+        model_name="gemini-2.5-flash",
+        generation_config=generation_config,
+        system_instruction=system_instruction
+    )
+
+    user_prompt = f"""수업 데이터:
+
+{courses_json}
+
+위 수업 데이터를 우선순위가 높은 순서대로 정렬해주세요. 입력받은 데이터 형식을 그대로 유지하며 정렬만 수행해주세요."""
+
+    print("수업 우선순위 분석 API 호출 중...")
+    start_time = time.perf_counter()
+
+    response = model.generate_content(user_prompt)
+
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+
+    print("수업 우선순위 분석 응답 수신 완료")
+    print(f"⏱️  응답 시간: {elapsed_time:.2f}초")
+
+    # 토큰 사용량 추출
+    if hasattr(response, 'usage_metadata'):
+        usage = response.usage_metadata
+        print(f"📊 토큰 사용량:")
+        print(f"   - 입력 토큰: {usage.prompt_token_count}")
+        print(f"   - 출력 토큰: {usage.candidates_token_count}")
+        print(f"   - 총 토큰: {usage.total_token_count}")
+
+    # JSON 응답을 CoursePriorityData 객체 리스트로 변환
+    sorted_courses_data = json.loads(response.text)
+    return [CoursePriorityData(**course) for course in sorted_courses_data]
 
 
 # 2-2. 2단계: 시간표 생성 함수
@@ -341,7 +464,7 @@ def get_timetable_json(request: TimetableRequest) -> dict:
     }
 
 # ------------------------------------
-# 3. FastAPI 앱 및 엔드포인트 생성
+# 3. FastAPI 앱 및 미들웨어 설정
 # ------------------------------------
 app = FastAPI(
     title="TimeWizard AI Timetable Generator",
@@ -416,6 +539,43 @@ async def create_timetable(request: TimetableRequest):
         )
 
 
+@app.post("/prioritize-courses")
+async def create_course_priorities(request_data: list[CoursePriorityData]):
+    """
+    수업 데이터를 우선순위 순서대로 정렬합니다.
+
+    Args:
+        - request_data: 우선순위를 정할 수업 데이터 목록 (CourseResponseDTO 형식의 배열)
+
+    Returns:
+        우선순위가 높은 순서대로 정렬된 수업 데이터 목록
+    """
+    try:
+        print("=== 📋 수업 우선순위 정렬 시작 ===")
+
+        # 요청 데이터 확인
+        print(f"요청받은 수업 데이터 수: {len(request_data)}")
+        if request_data:
+            print("첫 번째 수업 데이터 샘플:")
+            print(json.dumps(request_data[0].model_dump(), indent=2, ensure_ascii=False))
+
+        result = await run_in_threadpool(prioritize_courses, request_data)
+        print("=== ✅ 수업 우선순위 정렬 완료 ===")
+        print(f"반환된 수업 데이터 수: {len(result)}")
+        return result
+
+    except Exception as e:
+        print(f"❌ 수업 우선순위 정렬 중 오류 발생: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"수업 우선순위 정렬 중 오류가 발생했습니다: {str(e)}"
+        )
+
+# 기존의 CoursePriorityRequest 모델은 다른 용도로 사용할 수 있도록 유지
+
+
 @app.get("/")
 async def root():
-    return {"message": "TimeWizard AI Timetable Generator API (2-Stage)", "status": "running"}
+    return {"message": "TimeWizard AI Timetable Generator API (3-Stage)", "status": "running"}
