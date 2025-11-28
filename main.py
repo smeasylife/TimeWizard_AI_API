@@ -55,9 +55,13 @@ class CoursePriorityData(BaseModel):
     capacity: int | None = Field(description="수강 정원")  # capacity
     semester: str | None = None  # semester
     courseTimes: list[CourseTimeDTO] = Field(description="한 수업에 있는 여러 수업 요일과 시간")  # courseTimes
-
+  
 class CoursePriorityRequest(BaseModel):
     courses: list[CoursePriorityData] = Field(description="우선순위를 정할 수업 데이터 목록")
+
+class CoursePriorityResponse(BaseModel):
+    prioritized_courses: list[CoursePriorityData] = Field(description="우선순위가 정렬된 수업 데이터 목록")
+    priority_summary: str = Field(description="전체 우선순위 결정 이유 (3줄 요약)")
 
 class TimetableRequest(BaseModel):
     depart: str = Field(description="학과")
@@ -189,7 +193,7 @@ def analyze_requirements(requirement: str) -> dict:
 
 
 # 2-1-2. 수업 우선순위 결정 함수
-def prioritize_courses(courses: list[CoursePriorityData]) -> list[CoursePriorityData]:
+def prioritize_courses(courses: list[CoursePriorityData]) -> CoursePriorityResponse:
     """
     수업 데이터를 분석하여 신청 우선순위로 정렬합니다.
     """
@@ -206,21 +210,22 @@ def prioritize_courses(courses: list[CoursePriorityData]) -> list[CoursePriority
         indent=2
     )
 
-    system_instruction = """당신의 임무는 제공된 수업 데이터를 분석하여 수강 신청 우선순위로 정렬하는 것입니다.
+    system_instruction = """당신의 임무는 제공된 수업 데이터를 분석하여 수강 신청 우선순위로 정렬하고, 전체 우선순위 결정 이유를 세 줄로 요약하는 것입니다.
 
 **데이터 구조:**
 각 수업은 다음 필드를 포함합니다:
-- course_id: 수업 고유 ID
-- course_code: 과목 코드
-- course_name: 과목명 (한글)
-- course_english_name: 과목명 (영문)
+- courseId: 수업 고유 ID
+- courseCode: 과목 코드
+- courseName: 과목명 (한글)
+- courseEnglishName: 과목명 (영문)
+- courseNumber: 과목번호
 - professor: 교수명
 - major: 개설학과
 - grade: 학년
 - credits: 학점
-- course_type: 이수구분 (전공필수, 전공선택, 교양필수 등)
+- courseType: 이수구분 (전공필수, 전공선택, 교양필수 등)
 - capacity: 수강 정원
-- course_times: 수업 시간 정보
+- courseTimes: 수업 시간 정보
 
 **우선순위 결정 기준:**
 1. **이수구분 중요도** (높은 순서):
@@ -237,8 +242,20 @@ def prioritize_courses(courses: list[CoursePriorityData]) -> list[CoursePriority
    - 학점(credits)이 높은 수업(3학점 이상)은 조금 더 높은 우선순위 고려
 
 **출력 규칙:**
-- 입력받은 수업 데이터를 그대로 우선순위가 높은 순서대로 정렬하여 반환
-- 모든 필드를 그대로 유지
+다음 JSON 형식으로 응답해야 합니다:
+{
+  "prioritized_courses": [우선순위가 높은 순서대로 정렬된 수업 데이터 배열],
+  "priority_summary": "전체 우선순위 결정 이유를 상세하고 길게 설명한 요약 (최소 5~8줄)"
+}
+
+**priority_summary 작성 규칙:**
+- 전체 수강신청 우선순위 결정 이유를 상세하고 길게 작성 (최소 5~8줄)
+- 첫 부분: 이수구분 중요도에 따른 전체적인 우선순위 방향 설명
+- 중간 부분: 구체적인 수업들의 특징을 언급하며 왜 그 순서로 배정되었는지 상세 설명
+  - 특정 수업들의 이수구분, 정원, 학점, 교수 등 구체적인 정보를 언급
+  - 왜 특정 수업이 다른 수업보다 높은 우선순위를 받았는지 논리적으로 설명
+- 마지막 부분: 종합적인 우선순위 결정 이유와 수강 신청 전략적 제안
+- 각 줄은 50자 이내로 상세하게 작성되지만 전체적으로 긴 요약이 되도록 작성
 """
 
     generation_config = {
@@ -256,7 +273,9 @@ def prioritize_courses(courses: list[CoursePriorityData]) -> list[CoursePriority
 
 {courses_json}
 
-위 수업 데이터를 우선순위가 높은 순서대로 정렬해주세요. 입력받은 데이터 형식을 그대로 유지하며 정렬만 수행해주세요."""
+위 수업 데이터를 우선순위가 높은 순서대로 정렬하고, 전체 우선순위 결정 이유를 상세하고 길게 작성하여 priority_summary 필드에 포함해주세요.
+최소 5~8줄에 걸쳐 구체적인 수업명, 이수구분, 정원 등을 언급하며 왜 그 순서로 우선순위가 결정되었는지 상세하게 설명해주세요.
+지정된 JSON 형식에 맞춰 응답해주세요."""
 
     print("수업 우선순위 분석 API 호출 중...")
     start_time = time.perf_counter()
@@ -277,9 +296,17 @@ def prioritize_courses(courses: list[CoursePriorityData]) -> list[CoursePriority
         print(f"   - 출력 토큰: {usage.candidates_token_count}")
         print(f"   - 총 토큰: {usage.total_token_count}")
 
-    # JSON 응답을 CoursePriorityData 객체 리스트로 변환
-    sorted_courses_data = json.loads(response.text)
-    return [CoursePriorityData(**course) for course in sorted_courses_data]
+    # JSON 응답을 CoursePriorityResponse 객체로 변환
+    response_data = json.loads(response.text)
+
+    # 정렬된 수업 데이터를 CoursePriorityData 객체 리스트로 변환
+    prioritized_courses = [CoursePriorityData(**course) for course in response_data["prioritized_courses"]]
+
+    # CoursePriorityResponse 객체 생성하여 반환
+    return CoursePriorityResponse(
+        prioritized_courses=prioritized_courses,
+        priority_summary=response_data["priority_summary"]
+    )
 
 
 # 2-2. 2단계: 시간표 생성 함수
@@ -540,7 +567,7 @@ async def create_timetable(request: TimetableRequest):
 
 
 @app.post("/prioritize-courses")
-async def create_course_priorities(request_data: list[CoursePriorityData]):
+async def create_course_priorities(request_data: list[CoursePriorityData]) -> CoursePriorityResponse:
     """
     수업 데이터를 우선순위 순서대로 정렬합니다.
 
@@ -561,7 +588,8 @@ async def create_course_priorities(request_data: list[CoursePriorityData]):
 
         result = await run_in_threadpool(prioritize_courses, request_data)
         print("=== ✅ 수업 우선순위 정렬 완료 ===")
-        print(f"반환된 수업 데이터 수: {len(result)}")
+        print(f"반환된 수업 데이터 수: {len(result.prioritized_courses)}")
+        print(f"우선순위 요약: {result.priority_summary}")
         return result
 
     except Exception as e:
