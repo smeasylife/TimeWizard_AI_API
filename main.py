@@ -61,7 +61,7 @@ class CoursePriorityRequest(BaseModel):
 
 class CoursePriorityResponse(BaseModel):
     prioritized_courses: list[CoursePriorityData] = Field(description="우선순위가 정렬된 수업 데이터 목록")
-    priority_summary: str = Field(description="전체 우선순위 결정 이유 (3줄 요약)")
+    ai_comment: str = Field(description="전체 우선순위 결정 이유 (3문장 내외)")
 
 class TimetableRequest(BaseModel):
     depart: str = Field(description="학과")
@@ -245,17 +245,20 @@ def prioritize_courses(courses: list[CoursePriorityData]) -> CoursePriorityRespo
 다음 JSON 형식으로 응답해야 합니다:
 {
   "prioritized_courses": [우선순위가 높은 순서대로 정렬된 수업 데이터 배열],
-  "priority_summary": "전체 우선순위 결정 이유를 상세하고 길게 설명한 요약 (최소 5~8줄)"
+  "ai_comment": "우선순위 결정의 논리적 근거 (한국어 3문장 내외)"
 }
 
-**priority_summary 작성 규칙:**
-- 전체 수강신청 우선순위 결정 이유를 상세하고 길게 작성 (최소 5~8줄)
-- 첫 부분: 이수구분 중요도에 따른 전체적인 우선순위 방향 설명
-- 중간 부분: 구체적인 수업들의 특징을 언급하며 왜 그 순서로 배정되었는지 상세 설명
-  - 특정 수업들의 이수구분, 정원, 학점, 교수 등 구체적인 정보를 언급
-  - 왜 특정 수업이 다른 수업보다 높은 우선순위를 받았는지 논리적으로 설명
-- 마지막 부분: 종합적인 우선순위 결정 이유와 수강 신청 전략적 제안
-- 각 줄은 50자 이내로 상세하게 작성되지만 전체적으로 긴 요약이 되도록 작성
+### 지시 사항
+출력한 '수강신청 TODO 리스트'의 우선순위 순서가 결정된 **논리적 근거**를 설명하십시오.
+
+### 분석 기준
+1. **예상 경쟁률:** 클릭 경쟁이 치열한 과목인가?
+2. **강의 중요도:** 졸업 필수 요건 혹은 선수 과목인가?
+3. **수용 인원:** 여석이 적어 조기 마감이 예상되는가?
+
+### 출력 제약 조건
+- **범위:** 모든 강의를 나열하지 말고, **최상위 우선순위**와 **최하위 우선순위**를 중심으로 대조하여 설명할 것.
+- **분량:** 핵심만 요약하여 **한국어 3문장 내외**로 작성할 것.
 """
 
     generation_config = {
@@ -273,8 +276,8 @@ def prioritize_courses(courses: list[CoursePriorityData]) -> CoursePriorityRespo
 
 {courses_json}
 
-위 수업 데이터를 우선순위가 높은 순서대로 정렬하고, 전체 우선순위 결정 이유를 상세하고 길게 작성하여 priority_summary 필드에 포함해주세요.
-최소 5~8줄에 걸쳐 구체적인 수업명, 이수구분, 정원 등을 언급하며 왜 그 순서로 우선순위가 결정되었는지 상세하게 설명해주세요.
+위 수업 데이터를 우선순위가 높은 순서대로 정렬하고, 우선순위 결정의 논리적 근거를 한국어 3문장 내외로 작성하여 ai_comment 필드에 포함해주세요.
+최상위 우선순위와 최하위 우선순위 수업을 중심으로 경쟁률, 강의 중요도, 수용 인원을 대조하여 설명해주세요.
 지정된 JSON 형식에 맞춰 응답해주세요."""
 
     print("수업 우선순위 분석 API 호출 중...")
@@ -305,7 +308,7 @@ def prioritize_courses(courses: list[CoursePriorityData]) -> CoursePriorityRespo
     # CoursePriorityResponse 객체 생성하여 반환
     return CoursePriorityResponse(
         prioritized_courses=prioritized_courses,
-        priority_summary=response_data["priority_summary"]
+        ai_comment=response_data["ai_comment"]
     )
 
 
@@ -589,7 +592,7 @@ async def create_course_priorities(request_data: list[CoursePriorityData]) -> Co
         result = await run_in_threadpool(prioritize_courses, request_data)
         print("=== ✅ 수업 우선순위 정렬 완료 ===")
         print(f"반환된 수업 데이터 수: {len(result.prioritized_courses)}")
-        print(f"우선순위 요약: {result.priority_summary}")
+        print(f"AI 코멘트: {result.ai_comment}")
         return result
 
     except Exception as e:
