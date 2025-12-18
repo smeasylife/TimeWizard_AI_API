@@ -128,7 +128,7 @@ def analyze_requirements(requirement: str) -> dict:
     generation_config = {
         "temperature": 0.3,
         "response_mime_type": "application/json",
-        "response_schema": {
+                "response_schema": {
             "type": "object",
             "required": ["excludeTimeBlocks", "includeCourses", "excludeCourses"],
             "properties": {
@@ -159,8 +159,8 @@ def analyze_requirements(requirement: str) -> dict:
         }
     }
 
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
+    client = genai.GenerativeModel(
+        model_name="gemini-3-flash-preview",
         generation_config=generation_config,
         system_instruction=system_instruction
     )
@@ -173,7 +173,7 @@ def analyze_requirements(requirement: str) -> dict:
     print("1단계: 요구사항 분석 API 호출 중...")
     start_time = time.perf_counter()
 
-    response = model.generate_content(user_prompt)
+    response = client.generate_content(user_prompt)
 
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
@@ -263,11 +263,12 @@ def prioritize_courses(courses: list[CoursePriorityData]) -> CoursePriorityRespo
 
     generation_config = {
         "temperature": 0.2,
-        "response_mime_type": "application/json"
+        "response_mime_type": "application/json",
+        "thinking_level": "LOW"
     }
 
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
+    client = genai.GenerativeModel(
+        model_name="gemini-3-flash-preview",
         generation_config=generation_config,
         system_instruction=system_instruction
     )
@@ -283,7 +284,7 @@ def prioritize_courses(courses: list[CoursePriorityData]) -> CoursePriorityRespo
     print("수업 우선순위 분석 API 호출 중...")
     start_time = time.perf_counter()
 
-    response = model.generate_content(user_prompt)
+    response = client.generate_content(user_prompt)
 
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
@@ -392,7 +393,7 @@ def get_timetable_json(request: TimetableRequest) -> dict:
     generation_config = {
         "temperature": 0.3,
         "response_mime_type": "application/json",
-        "response_schema": {
+                "response_schema": {
             "type": "object",
             "required": ["courses", "ai_comment"],
             "properties": {
@@ -447,8 +448,8 @@ def get_timetable_json(request: TimetableRequest) -> dict:
         },
     ]
 
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
+    client = genai.GenerativeModel(
+        model_name="gemini-3-flash-preview",
         generation_config=generation_config,
         safety_settings=safety_settings,
         system_instruction=system_instruction
@@ -458,7 +459,7 @@ def get_timetable_json(request: TimetableRequest) -> dict:
     print("2단계: 시간표 생성 API 호출 시작...")
     start_time = time.perf_counter()
 
-    response = model.generate_content(contents)
+    response = client.generate_content(contents)
 
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
