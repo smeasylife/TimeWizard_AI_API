@@ -128,7 +128,7 @@ def analyze_requirements(requirement: str) -> dict:
     generation_config = {
         "temperature": 0.3,
         "response_mime_type": "application/json",
-                "response_schema": {
+                        "response_schema": {
             "type": "object",
             "required": ["excludeTimeBlocks", "includeCourses", "excludeCourses"],
             "properties": {
@@ -263,8 +263,7 @@ def prioritize_courses(courses: list[CoursePriorityData]) -> CoursePriorityRespo
 
     generation_config = {
         "temperature": 0.2,
-        "response_mime_type": "application/json",
-        "thinking_level": "LOW"
+        "response_mime_type": "application/json"
     }
 
     client = genai.GenerativeModel(
@@ -345,6 +344,101 @@ def get_timetable_json(request: TimetableRequest) -> dict:
 {courses_json}
 --- 수업 데이터 끝 ---
 """
+
+    # 컴퓨터학부인 경우 커리큘럼 정보 추가
+    if "컴퓨터학부" in request.depart:
+        curriculum_info = """다음은 컴퓨터학부 커리큘럼을 정리한 내용입니다. 시간표 생성에 참고하세요:
+{
+  "curriculum_title": "2020-2023 교육과정 컴퓨터전공 교과목 이수체계",
+  "last_updated": "2024학년도 1학기 기준",
+  "curriculum": {
+    "1st_grade": {
+      "semester_1": [
+        { "name": "컴퓨터개론", "credit": 3, "type": "전공핵심" },
+        { "name": "프로그래밍기초", "credit": 3, "type": "전공기초" },
+        { "name": "논리학", "credit": 3, "type": "전공기초" },
+        { "name": "미분적분학1", "credit": 3, "type": "전공기초" }
+      ],
+      "semester_2": [
+        { "name": "프로그램설계방법론", "credit": 3, "type": "전공핵심" },
+        { "name": "오픈소스SW기초", "credit": 2, "type": "전공핵심" },
+        { "name": "시스템프로그래밍기초", "credit": 3, "type": "전공핵심" },
+        { "name": "공학영어", "credit": 2, "type": "전공기초" },
+        { "name": "이산수학", "credit": 3, "type": "전공기초" }
+      ]
+    },
+    "2nd_grade": {
+      "semester_1": [
+        { "name": "자료구조론", "credit": 3, "type": "전공핵심" },
+        { "name": "선형대수", "credit": 3, "type": "전공핵심" },
+        { "name": "오토마타와형식언어", "credit": 3, "type": "전공핵심" },
+        { "name": "디지털논리설계", "credit": 3, "type": "전공핵심" },
+        { "name": "확률론", "credit": 3, "type": "전공기초" }
+      ],
+      "semester_2": [
+        { "name": "알고리즘설계와분석", "credit": 3, "type": "전공핵심" },
+        { "name": "데이터베이스", "credit": 4, "type": "전공핵심" },
+        { "name": "수치해석", "credit": 3, "type": "전공핵심" },
+        { "name": "소프트웨어개발실무", "credit": 4, "type": "전공핵심" },
+        { "name": "음악프로그래밍", "credit": 3, "type": "전공핵심" },
+        { "name": "전산통계학", "credit": 3, "type": "전공기초" }
+      ]
+    },
+    "3rd_grade": {
+      "semester_1": [
+        { "name": "운영체제론", "credit": 4, "type": "전공핵심" },
+        { "name": "컴퓨터구조", "credit": 3, "type": "전공핵심" },
+        { "name": "컴퓨터비전", "credit": 3, "type": "전공핵심" },
+        { "name": "고급프로그래밍", "credit": 3, "type": "전공심화" },
+        { "name": "고급데이터베이스", "credit": 4, "type": "전공심화" },
+        { "name": "컴퓨터공학연구실 심화실습1", "credit": 1, "type": "전공심화" },
+        { "name": "컴퓨터네트워크", "credit": 3, "type": "전공핵심", "track": "사물인터넷" },
+        { "name": "sw창업캡스톤디자인1", "credit": 3, "type": "전공핵심" }
+      ],
+      "semester_2": [
+        { "name": "시스템프로그래밍", "credit": 4, "type": "전공핵심" },
+        { "name": "인공지능", "credit": 3, "type": "전공핵심" },
+        { "name": "데이터마이닝", "credit": 3, "type": "전공핵심" },
+        { "name": "컴퓨터그래픽스", "credit": 3, "type": "전공심화" },
+        { "name": "객체지향개발론", "credit": 3, "type": "전공심화" },
+        { "name": "딥러닝", "credit": 3, "type": "전공심화" },
+        { "name": "컴퓨터캡스톤디자인1", "credit": 3, "type": "전공심화" },
+        { "name": "컴퓨터공학연구실 심화실습2", "credit": 1, "type": "전공심화" },
+        { "name": "마이크로프로세서인터페이스", "credit": 3, "type": "전공심화", "track": "시스템SW" },
+        { "name": "데이터통신", "credit": 3, "type": "전공심화", "track": "사물인터넷" },
+        { "name": "모바일컴퓨팅", "credit": 3, "type": "전공심화", "track": "사물인터넷" },
+        { "name": "암호학", "credit": 3, "type": "전공핵심", "track": "사이버보안" },
+        { "name": "sw창업캡스톤디자인2", "credit": 3, "type": "전공핵심" }
+      ]
+    },
+    "4th_grade": {
+      "semester_1": [
+        { "name": "소프트웨어공학", "credit": 4, "type": "전공심화" },
+        { "name": "프로그래밍언어론", "credit": 3, "type": "전공심화" },
+        { "name": "가상및증강현실프로그래밍", "credit": 3, "type": "전공심화" },
+        { "name": "음성인식", "credit": 3, "type": "전공심화" },
+        { "name": "데이터사이언스", "credit": 3, "type": "전공심화" },
+        { "name": "빅데이터검색", "credit": 3, "type": "전공심화" },
+        { "name": "전공진로세미나", "credit": 1, "type": "전공심화" },
+        { "name": "컴퓨터캡스톤디자인2", "credit": 3, "type": "전공심화" },
+        { "name": "컴퓨터공학연구실 심화실습3", "credit": 1, "type": "전공심화" },
+        { "name": "시스템보안", "credit": 3, "type": "전공심화", "track": "사이버보안" }
+      ],
+      "semester_2": [
+        { "name": "프로그램검증", "credit": 3, "type": "전공심화" },
+        { "name": "소셜네트워크분석", "credit": 3, "type": "전공심화" },
+        { "name": "컴파일러", "credit": 3, "type": "전공심화" },
+        { "name": "컴퓨터공학연구실 심화실습4", "credit": 1, "type": "전공심화" },
+        { "name": "임베디드소프트웨어설계", "credit": 3, "type": "전공심화", "track": "시스템SW" },
+        { "name": "임베디드운영체제", "credit": 4, "type": "전공심화", "track": "사물인터넷" },
+        { "name": "네트워크시큐리티", "credit": 3, "type": "전공심화", "track": "사이버보안" }
+      ]
+    }
+  }
+}
+
+"""
+        user_prompt_text += curriculum_info
     contents.append(user_prompt_text)
     print(f"1. 사용자 정보 및 수업 데이터 생성 (총 {len(request.courses)}개 과목)")
 
@@ -393,7 +487,7 @@ def get_timetable_json(request: TimetableRequest) -> dict:
     generation_config = {
         "temperature": 0.3,
         "response_mime_type": "application/json",
-                "response_schema": {
+                        "response_schema": {
             "type": "object",
             "required": ["courses", "ai_comment"],
             "properties": {
